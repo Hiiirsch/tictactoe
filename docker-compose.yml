@@ -6,6 +6,12 @@ services:
       dockerfile: Dockerfile
     ports:
       - "5010:5000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5010/health"]
+      interval: 1m30s
+      timeout: 30s
+      retries: 5
+      start_period: 30s
   frontend:
     container_name: tic-tac-toe-frontend
     build:
@@ -15,6 +21,12 @@ services:
       - "3011:3000"
     depends_on:
       - backend
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3011/health"]
+      interval: 1m30s
+      timeout: 30s
+      retries: 5
+      start_period: 30s
 
   proxy:
     image: nginx:1.21-alpine

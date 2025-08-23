@@ -22,4 +22,13 @@ function App() {
   );
 }
 
+// Health-Check Endpoint für Frontend
+export async function healthCheck(req, res) {
+  if (req.url === '/health') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ status: 'healthy' }));
+    return;
+  }
+}
+
 export default App;

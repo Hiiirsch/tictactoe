@@ -1,38 +1,81 @@
-.App {
-  text-align: center;
-}
-
-.App-logo {
-  height: 40vmin;
-  pointer-events: none;
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  .App-logo {
-    animation: App-logo-spin infinite 20s linear;
-  }
-}
-
-.App-header {
+/* Globale Stile für die App */
+body {
+  margin: 0;
+  font-family: Arial, sans-serif;
   background-color: #282c34;
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  font-size: calc(10px + 2vmin);
   color: white;
 }
 
-.App-link {
-  color: #61dafb;
+.app {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  text-align: center;
 }
 
-@keyframes App-logo-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
+/* Stile für den Startbildschirm */
+.start-screen, .game-container {
+  padding: 40px;
+  background-color: #384252;
+  border-radius: 10px;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+}
+
+.start-screen h1 {
+  font-size: 2.5em;
+  margin-bottom: 30px;
+}
+
+.start-screen input {
+  display: block;
+  width: 100%;
+  padding: 10px;
+  margin-bottom: 20px;
+  border: 1px solid #5a6575;
+  border-radius: 5px;
+  background-color: #4c576a;
+  color: white;
+}
+
+.button-group, .join-group {
+  margin-top: 20px;
+}
+
+.button-group button, .join-group button {
+  padding: 12px 24px;
+  font-size: 1em;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  background-color: #61dafb;
+  color: #282c34;
+  transition: background-color 0.3s;
+}
+
+.button-group button:hover, .join-group button:hover {
+  background-color: #21a1f1;
+}
+
+.join-group input {
+  width: auto;
+  margin-right: 10px;
+}
+
+/* Stile für den Spielbereich */
+.game-container {
+  min-width: 400px;
+}
+
+.game-container h1 {
+  font-size: 2em;
+}
+
+.game-container p {
+  font-size: 1.2em;
+  margin-bottom: 20px;
+}
+
+.game-container button {
+  margin-top: 20px;
 }

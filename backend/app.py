@@ -6,16 +6,11 @@ import secrets
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = "your_secret_key"
-CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
+CORS(app, resources={r"/*": {"origins": ["http://localhost:8080", "http://tictactoe.hrschmllr"]}}, supports_credentials=True)
 
 # Eventlet/gevent will be used automatically if installed.
 socketio = SocketIO(app, cors_allowed_origins="*")
 
-# In-memory game state per code
-# code -> {
-#   "board":[...], "next":"X"/"O", "status":"waiting/playing/over",
-#   "players": {sid:"X"/"O"}, "moves": int, "rematch_votes": set()
-# }
 rooms = {}
 
 WIN = [{0,1,2},{3,4,5},{6,7,8},{0,3,6},{1,4,7},{2,5,8},{0,4,8},{2,4,6}]

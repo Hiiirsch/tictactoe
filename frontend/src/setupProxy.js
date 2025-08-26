@@ -4,14 +4,14 @@ module.exports = function(app) {
   app.use(
     "/api",
     createProxyMiddleware({
-      target: "http://localhost:5000",
+      target: "http://backend:5000",
       changeOrigin: true,
     })
   );
   app.use(
     "/socket.io",
     createProxyMiddleware({
-      target: "http://localhost:5000",
+      target: "http://backend:5000",
       ws: true,
       changeOrigin: true,
     })

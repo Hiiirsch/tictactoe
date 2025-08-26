@@ -162,7 +162,7 @@ export default function App() {
 
     socket.on("error", ({ message }) => {
       if (message === "invalid_code") {
-        setError("❌ This game code does not exist! Please check the code and try again.");
+        setError("This game code does not exist! Please check the code and try again.");
       } else {
         setError(message || "Unknown error");
       }

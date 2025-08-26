@@ -1,10 +1,13 @@
 from flask import Flask, jsonify, request
+from flask_cors import CORS
 from flask_socketio import SocketIO, emit, join_room, leave_room
 import secrets
 import time
 
+
 app = Flask(__name__)
 app.config["SECRET_KEY"] = "your_secret_key"
+CORS(app, resources={r"/*": {"origins": ["http://localhost:8080", "http://tictactoe.hrschmllr"]}}, supports_credentials=True)
 
 # Eventlet/gevent will be used automatically if installed.
 socketio = SocketIO(app, cors_allowed_origins="*")
@@ -221,6 +224,35 @@ def on_resign(data):
         room=code
     )
     emit_players(code, st)
+
+@socketio.on("decline_rematch")
+def on_decline_rematch(data):
+    code = (data or {}).get("code")
+    if not code or code not in rooms:
+        return
+    st = rooms[code]
+    # Find the other player (the one who requested rematch)
+    others = [sid for sid in st["players"] if sid != request.sid]
+    for sid in others:
+        socketio.emit("rematch_declined", {}, room=sid)
+
+@socketio.on("new_match")
+def on_new_match(data):
+    code = (data or {}).get("code")
+    if not code or code not in rooms:
+        return
+    st = rooms[code]
+    # Remove player from room
+    if request.sid in st["players"]:
+        leave_room(code)
+        st["players"].pop(request.sid, None)
+        st["rematch_votes"] = set()
+        # Notify remaining player
+        for sid in st["players"]:
+            socketio.emit("opponent_left", {}, room=sid)
+        # Delete room if empty
+        if not st["players"]:
+            rooms.pop(code, None)
 
 @socketio.on("rematch")
 def on_rematch(data):

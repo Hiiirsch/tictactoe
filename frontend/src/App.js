@@ -81,7 +81,10 @@ export default function App() {
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e) => {
-      if (e.key.toLowerCase() === "m") setShowVolumeMenu((v) => !v);
+      // Öffnen mit Command/Strg+M
+      if ((e.key.toLowerCase() === "m") && e.ctrlKey) {
+        setShowVolumeMenu((v) => !v);
+      }
       if (e.key === "Escape") {
         if (showManual) setShowManual(false);
         if (rematchPending && phase !== "playing") {
@@ -395,21 +398,30 @@ export default function App() {
       {/* Manual toggle (hidden when rematch overlays block) */}
       {(phase === "landing" || phase === "waiting" || phase === "playing" || phase === "over") &&
         !((rematchRequested && phase !== "playing") || (phase === "over" && draw) || (rematchPending && phase !== "playing")) && (
-          <button
-            className="primary manual-btn"
-            style={{ position: "fixed", top: 18, right: 18, zIndex: 200, fontSize: 14, padding: "8px 16px" }}
-            onClick={() => setShowManual((v) => !v)}
-          >
-            {showManual ? "Back to Game" : "Manual"}
-          </button>
+          <div style={{position: "fixed", top: 18, right: 18, zIndex: 200, display: "flex", flexDirection: "column", alignItems: "flex-end"}}>
+            <button
+              className="primary manual-btn"
+              style={{ fontSize: 14, padding: "8px 16px", marginBottom: 8 }}
+              onClick={() => setShowManual((v) => !v)}
+            >
+              {showManual ? "Back to Game" : "Manual"}
+            </button>
+            <button
+              className="primary volume-btn"
+              style={{ fontSize: 14, padding: "8px 16px" }}
+              onClick={() => setShowVolumeMenu((v) => !v)}
+            >
+              {showVolumeMenu ? "Close Volume" : "Volume"}
+            </button>
+          </div>
       )}
 
       {/* Volume Menu */}
       {showVolumeMenu && (
         <div className="volume-menu">
-          <h3>🔊 Lautstärke</h3>
+          <h3>Volume</h3>
           <div className="volume-row">
-            <label>Musik</label>
+            <label>Music</label>
             <input
               type="range" min={0} max={1} step={0.01}
               value={musicVolume}
@@ -432,7 +444,7 @@ export default function App() {
             />
             <span>{Math.round(effectVolume * 100)}%</span>
           </div>
-          <div style={{ fontSize: 12, marginTop: 8, opacity: .7 }}>Menü mit Taste <b>M</b> öffnen/schließen</div>
+          <div style={{ fontSize: 12, marginTop: 8, opacity: .7 }}>Open/Close menu with <b>Ctrl+M</b></div>
         </div>
       )}
 
@@ -513,43 +525,42 @@ export default function App() {
 
         {/* Landing */}
         {phase === "landing" && (
-          <div className="card">
-            <h2>New Game</h2>
-            <div className="join join--stack" style={{ marginBottom: 8 }}>
-              <input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Your name (optional)"
-                maxLength={24}
-                aria-label="Your name"
-              />
-              <button className="primary" onClick={createGame}>Create Game</button>
-            </div>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', width: '100%' }}>
+            <div className="card" style={{ width: '100%' }}>
+              <h2>New Game</h2>
+              <div className="join join--stack" style={{ marginBottom: 8 }}>
+                <button className="primary" onClick={createGame}>Create Game</button>
+              </div>
 
-            <div className="divider">or</div>
+              <div className="divider">or</div>
 
-            <h2>Join Game</h2>
-            <div className="join">
-              <input
-                value={code}
-                onChange={(e) => setCode(e.target.value.toUpperCase())}
-                placeholder="CODE (e.g. A1B2C3)"
-                maxLength={8}
-                aria-label="Game code"
-              />
-              <input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Your name (optional)"
-                maxLength={24}
-                aria-label="Your name"
-              />
-              <button onClick={joinGame}>Join</button>
-              <button className="btn-secondary" onClick={watchGame}>Watch only</button>
+              <h2>Join Game</h2>
+              <div className="join">
+                <input
+                  value={code}
+                  onChange={(e) => setCode(e.target.value.toUpperCase())}
+                  placeholder="CODE (e.g. A1B2C3)"
+                  maxLength={8}
+                  aria-label="Game code"
+                />
+                <button onClick={joinGame}>Join</button>
+                <button className="btn-secondary" onClick={watchGame}>Watch only</button>
+              </div>
+              {!!error && !error.startsWith("Invalid game code!") && !error.startsWith("This game code does not exist!") && (
+                <div className="error">{error}</div>
+              )}
+              <div className="join" style={{ marginTop: 24, justifyContent: 'center', alignItems: 'center', width: '100%' }}>
+                <label htmlFor="name-input" style={{ fontWeight: "bold", marginRight: 8, fontFamily: 'Press Start 2P, VT323, monospace', textAlign: 'center' }}>Name:</label>
+                <input
+                  id="name-input"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="Your name (optional)"
+                  maxLength={24}
+                  aria-label="Your name"
+                />
+              </div>
             </div>
-            {!!error && !error.startsWith("Invalid game code!") && !error.startsWith("This game code does not exist!") && (
-              <div className="error">{error}</div>
-            )}
           </div>
         )}
 
@@ -709,7 +720,7 @@ export default function App() {
             </div>
           </div>
         )}
-        {error && error.startsWith("❌ Invalid game code!") && (
+        {error && error.startsWith("Invalid game code!") && (
           <div className="error-overlay" style={{ position:"fixed", top:0, left:0, width:"100vw", height:"100vh", background:"rgba(0,0,0,0.7)", zIndex:999, display:"flex", alignItems:"center", justifyContent:"center" }}>
             <div style={{ background:"#222", color:"#fff", padding:"32px 40px", borderRadius:16, boxShadow:"0 2px 16px #000", textAlign:"center" }}>
               <h2 style={{ marginBottom:16 }}>Invalid Game Code</h2>
@@ -718,7 +729,7 @@ export default function App() {
             </div>
           </div>
         )}
-        {error && !error.startsWith("❌ Invalid game code!") && !error.startsWith("This game code does not exist!") && error !== "Your opponent has left the game." && (
+        {error && !error.startsWith("Invalid game code!") && !error.startsWith("This game code does not exist!") && error !== "Your opponent has left the game." && (
           <div className="error">{error}</div>
         )}
       </div>

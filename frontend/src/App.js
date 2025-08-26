@@ -1,38 +1,34 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { io } from "socket.io-client";
 import Confetti from "react-confetti";
 import "./styles.css";
 
 const emptyBoard = Array(9).fill(null);
 
-function Cell({ value, onClick, disabled }) {
-  return (
-    <button className="cell" onClick={onClick} disabled={disabled || value !== null}>
-      {value ?? ""}
-    </button>
-  );
-}
-
 function Board({ board, onMove, disabled }) {
   return (
-    <div className="board">
+    <div className="board" aria-label="Game board">
       {board.map((v, i) => (
-        <Cell key={i} value={v} onClick={() => onMove(i)} disabled={disabled} />
+        <button
+          key={i}
+          className="cell"
+          disabled={disabled || v !== null}
+          onClick={() => onMove(i)}
+          aria-label={`cell ${i + 1}${v ? ` ${v}` : ""}`}
+        >
+          {v}
+        </button>
       ))}
     </div>
   );
 }
 
 export default function App() {
-  // Manual page
+  // ---------- UI & Overlays ----------
   const [showManual, setShowManual] = useState(false);
-  // Initialisiere States VOR useEffect, damit sie nicht undefined sind
-  const [phase, setPhase] = useState("landing"); // landing | waiting | playing | over
-  const [winner, setWinner] = useState(null);
-  const [mySymbol, setMySymbol] = useState(null); // "X" | "O"
-  // Lautstärke-States
   const [showVolumeMenu, setShowVolumeMenu] = useState(false);
-  // Load volume from localStorage if available
+
+  // Volumes (persisted)
   const [musicVolume, setMusicVolume] = useState(() => {
     const v = localStorage.getItem("musicVolume");
     return v !== null ? Number(v) : 0.25;
@@ -41,32 +37,79 @@ export default function App() {
     const v = localStorage.getItem("effectVolume");
     return v !== null ? Number(v) : 0.7;
   });
-  // Rematch UI state (must be before useEffect)
-  const [rematchRequested, setRematchRequested] = useState(false); // opponent requested a rematch
-  const [rematchPending, setRematchPending] = useState(false);     // I have requested a rematch
-  const [rematchDeclined, setRematchDeclined] = useState(false);   // opponent declined rematch
-  // Keyboard shortcuts for menus
+
+  // Copy feedback
+  const [copied, setCopied] = useState(false);
+
+  // ---------- Game state ----------
+  const [phase, setPhase] = useState("landing"); // landing | waiting | playing | over
+  const [code, setCode] = useState("");
+  const [name, setName] = useState("");
+  const [spectating, setSpectating] = useState(false);
+
+  const [board, setBoard] = useState(emptyBoard);
+  const [next, setNext] = useState("X");
+  const [mySymbol, setMySymbol] = useState(null); // "X" | "O" | null (spectator)
+
+  const [winner, setWinner] = useState(null);
+  const [draw, setDraw] = useState(false);
+
+  // Audience + players
+  const [spectatorCount, setSpectatorCount] = useState(0);
+  const [players, setPlayers] = useState({ X: null, O: null }); // symbol -> name
+
+  // Rematch UI state
+  const [rematchRequested, setRematchRequested] = useState(false); // opponent asked
+  const [rematchPending, setRematchPending] = useState(false);     // I asked
+  const [rematchDeclined, setRematchDeclined] = useState(false);   // opponent declined
+
+  // Socket & errors
+  const [socketConnected, setSocketConnected] = useState(false);
+  const [error, setError] = useState("");
+
+  // Cheer / cooldown (spectators)
+  const [cooldown, setCooldown] = useState(0);
+  const lastCheerRef = useRef(0);
+  const cooldownMs = 10_000;
+
+  // Turn helper
+  const myTurn = useMemo(
+    () => !spectating && phase === "playing" && mySymbol && mySymbol === next,
+    [spectating, phase, mySymbol, next]
+  );
+
+  // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e) => {
-      if (e.key.toLowerCase() === 'm') {
-        setShowVolumeMenu((v) => !v);
-      }
-      if (e.key === 'Escape') {
+      if (e.key.toLowerCase() === "m") setShowVolumeMenu((v) => !v);
+      if (e.key === "Escape") {
         if (showManual) setShowManual(false);
-        if (rematchPending && phase !== 'playing') {
+        if (rematchPending && phase !== "playing") {
           setRematchPending(false);
           setError("");
         }
       }
     };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
   }, [showManual, rematchPending, phase]);
-  // Audio-Refs
-  const victoryRef = React.useRef(null);
-  const gameoverRef = React.useRef(null);
-  const bgMusicRef = React.useRef(null);
-  // Soundeffekte bei Spielende
+
+  // Cheer cooldown ticker
+  useEffect(() => {
+    const t = setInterval(() => {
+      const now = Date.now();
+      const remain = Math.max(0, cooldownMs - (now - lastCheerRef.current));
+      setCooldown(Math.ceil(remain / 1000));
+    }, 250);
+    return () => clearInterval(t);
+  }, []);
+
+  // Audio refs
+  const victoryRef = useRef(null);
+  const gameoverRef = useRef(null);
+  const bgMusicRef = useRef(null);
+
+  // Music & SFX on phase change
   useEffect(() => {
     if (phase === "over" && winner) {
       if (winner === mySymbol && victoryRef.current) {
@@ -78,50 +121,49 @@ export default function App() {
         gameoverRef.current.volume = effectVolume;
         gameoverRef.current.play();
       }
-      // stop Music
       if (bgMusicRef.current) {
         bgMusicRef.current.pause();
         bgMusicRef.current.currentTime = 0;
       }
     }
-    // start Music
     if (phase === "playing" && bgMusicRef.current) {
       bgMusicRef.current.volume = musicVolume;
       bgMusicRef.current.loop = true;
       bgMusicRef.current.play();
     }
-    // stop Music 
     if ((phase === "landing" || phase === "waiting") && bgMusicRef.current) {
       bgMusicRef.current.pause();
       bgMusicRef.current.currentTime = 0;
     }
   }, [phase, winner, mySymbol, musicVolume, effectVolume]);
-  const [socketConnected, setSocketConnected] = useState(false);
-  const [copied, setCopied] = useState(false); // Feedback für Copy-Button
+
+  // Socket
   const socket = useMemo(() => {
-    // same origin; Nginx routes /socket.io/ to the backend
+    // Same-origin; e.g. Nginx routes /socket.io/ to backend
     return io("/", { path: "/socket.io/", transports: ["websocket"] });
   }, []);
 
-  const [code, setCode] = useState("");
-  const [board, setBoard] = useState(emptyBoard);
-  const [next, setNext] = useState("X");
-  const [draw, setDraw] = useState(false);
-  const [error, setError] = useState("");
-
-
   useEffect(() => {
+    // Connection state
     socket.on("connect", () => setSocketConnected(true));
     socket.on("disconnect", () => setSocketConnected(false));
 
+    // Server assigns a symbol
     socket.on("assign", ({ symbol }) => {
       setMySymbol(symbol);
+      setSpectating(false);
       setError("");
     });
 
-    socket.on("waiting", () => setPhase("waiting"));
+    // Waiting for opponent
+    socket.on("waiting", (payload = {}) => {
+      setPhase("waiting");
+      if (payload.players) setPlayers(payload.players);
+      harvestSpectatorCount(payload);
+    });
 
-    socket.on("start", ({ next, board }) => {
+    // Game start
+    socket.on("start", ({ next, board, players: p, ...rest }) => {
       setBoard(board || emptyBoard);
       setNext(next || "X");
       setWinner(null);
@@ -131,35 +173,38 @@ export default function App() {
       setRematchPending(false);
       setRematchDeclined(false);
       setError("");
+      if (p) setPlayers(p);
+      harvestSpectatorCount(rest);
     });
 
-    socket.on("state", (payload) => {
+    // State updates
+    socket.on("state", (payload = {}) => {
       if (payload.board) setBoard(payload.board);
       if (payload.next) setNext(payload.next);
       if (payload.status === "over") setPhase("over");
       if (typeof payload.winner !== "undefined") setWinner(payload.winner);
       if (typeof payload.draw !== "undefined") setDraw(payload.draw);
+      if (payload.players) setPlayers(payload.players);
+      harvestSpectatorCount(payload);
     });
 
-    socket.on("game_over", ({ winner, draw }) => {
+    // Game over
+    socket.on("game_over", ({ winner, draw, ...rest }) => {
       setWinner(winner ?? null);
       setDraw(!!draw);
       setPhase("over");
+      harvestSpectatorCount(rest);
     });
 
+    // Opponent left
     socket.on("opponent_left", () => {
       setError("Your opponent has left the game.");
-      setPhase("landing");
-      setMySymbol(null);
-      setBoard(emptyBoard);
-      setWinner(null);
-      setDraw(false);
-      // reset flags
       setRematchRequested(false);
       setRematchPending(false);
       setRematchDeclined(false);
     });
 
+    // Backend errors
     socket.on("error", ({ message }) => {
       if (message === "invalid_code") {
         setError("This game code does not exist! Please check the code and try again.");
@@ -168,23 +213,51 @@ export default function App() {
       }
     });
 
-    // NEW: opponent requested a rematch -> show info + button
-    socket.on("rematch_request", ({ from }) => {
-      setRematchRequested(true);
-      setError(`Opponent wants a rematch${from ? ` (${from})` : ""}.`);
+    // Spectator snapshot
+    socket.on("spectator", (payload = {}) => {
+      setSpectating(true);
+      if (payload.board) setBoard(payload.board);
+      if (payload.next) setNext(payload.next);
+      if (payload.status) {
+        setPhase(
+          payload.status === "waiting"
+            ? "waiting"
+            : payload.status === "playing"
+            ? "playing"
+            : "over"
+        );
+      }
+      if (typeof payload.winner !== "undefined") setWinner(payload.winner);
+      if (typeof payload.draw !== "undefined") setDraw(payload.draw);
+      if (payload.players) setPlayers(payload.players);
+      setMySymbol(null);
+      setError("");
+      harvestSpectatorCount(payload);
     });
 
-    // NEW: my own request was sent -> show pending feedback
-    socket.on("rematch_pending", ({ waiting_for }) => {
-      setRematchPending(true);
-      setError(`Rematch requested. Waiting for approval (${waiting_for}) …`);
+    // Audience & players
+    socket.on("audience", ({ spectatorCount }) => {
+      if (Number.isFinite(spectatorCount)) setSpectatorCount(spectatorCount);
+    });
+    socket.on("players", ({ players }) => {
+      setPlayers(players || { X: null, O: null });
     });
 
-    // NEW: opponent declined rematch
+    // Cheer broadcast
+    socket.on("cheer", ({ target }) => {
+      fireConfetti(target);
+    });
+
+    // Rematch signals
     socket.on("rematch_declined", () => {
       setRematchPending(false);
       setRematchDeclined(true);
       setError("Opponent declined the rematch.");
+    });
+    socket.on("rematch_request", () => {
+      setRematchRequested(true);
+      setRematchDeclined(false);
+      setError("");
     });
 
     return () => {
@@ -193,14 +266,25 @@ export default function App() {
     };
   }, [socket]);
 
+  function harvestSpectatorCount(obj = {}) {
+    if (Number.isFinite(obj.spectatorCount)) return setSpectatorCount(obj.spectatorCount);
+    if (Number.isFinite(obj.spectatorsCount)) return setSpectatorCount(obj.spectatorsCount);
+    if (Number.isFinite(obj.audience)) return setSpectatorCount(obj.audience);
+    if (Array.isArray(obj.spectators)) return setSpectatorCount(obj.spectators.length);
+    if (typeof obj.spectators?.size === "number") return setSpectatorCount(obj.spectators.size);
+  }
+
+  // ---------- Actions ----------
   async function createGame() {
     try {
       setError("");
-      const res = await fetch("/api/games", { method: "POST" });
-      if (!res.ok) throw new Error("Error creating game");
+      // Try backend route first; fall back to /api prefix if needed.
+      let res = await fetch("/games", { method: "POST" });
+      if (!res.ok) res = await fetch("/api/games", { method: "POST" });
+      if (!res.ok) throw new Error("Could not create a game.");
       const data = await res.json();
       setCode(data.code);
-      socket.emit("join", { code: data.code });
+      socket.emit("join", { code: data.code, name: name || "Guest" });
       setPhase("waiting");
     } catch (e) {
       setError(e.message);
@@ -213,67 +297,121 @@ export default function App() {
       return;
     }
     setError("");
-    socket.emit("join", { code });
+    socket.emit("join", { code, name: name || "Guest" });
+  }
+
+  function watchGame() {
+    if (!code || code.length < 4) return setError("Please enter a valid code.");
+    setError("");
+    socket.emit("join", { code, name: name || "Guest", spectator: true });
   }
 
   function makeMove(cell) {
     if (phase !== "playing") return;
+    if (spectating) return;
     if (board[cell] !== null) return;
-    if (mySymbol !== next) return;
+    if (!myTurn) return;
     socket.emit("move", { code, cell });
-    // once a move is made, old rematch states are no longer valid
-    setRematchRequested(false);
-    setRematchPending(false);
   }
 
   function resign() {
+    if (spectating || phase !== "playing") return;
     socket.emit("resign", { code });
   }
 
   function rematch() {
-    setError("");
-    setWinner(null);
-    setDraw(false);
-    setBoard(emptyBoard);
-    setRematchDeclined(false);
+    if (spectating || phase !== "over") return;
     socket.emit("rematch", { code });
-    // directly set pending (server also confirms with rematch_pending)
-    setRematchPending(true);
+    setRematchPending(true);      // optimistic UI; server will start or opponent may decline
+    setRematchDeclined(false);
   }
 
-  // NEW: accept opponent's rematch request
   function acceptRematch() {
     if (!code) return;
-    socket.emit("rematch", { code }); 
+    socket.emit("rematch", { code });
     setRematchRequested(false);
     setRematchPending(true);
     setRematchDeclined(false);
   }
 
-  const myTurn = phase === "playing" && mySymbol === next;
+  function resetToLanding(emitNewMatch = false) {
+    if (emitNewMatch && code) socket.emit("new_match", { code });
+    setPhase("landing");
+    setBoard(emptyBoard);
+    setWinner(null);
+    setDraw(false);
+    setMySymbol(null);
+    setNext("X");
+    setSpectating(false);
+    setPlayers({ X: null, O: null });
+    setRematchRequested(false);
+    setRematchPending(false);
+    setRematchDeclined(false);
+    setError("");
+  }
 
+  // ---------- Cheer ----------
+  function canCheer() {
+    return spectating && cooldown === 0;
+  }
+
+  function cheer(target) {
+    if (!canCheer()) return;
+    lastCheerRef.current = Date.now();
+    setCooldown(Math.ceil(cooldownMs / 1000));
+    socket.emit("cheer", { code, target });
+    fireConfetti(target);
+  }
+
+  function fireConfetti(target) {
+    const container = document.body;
+    const count = 120;
+    const burst = document.createElement("div");
+    burst.className = "confetti-burst";
+    container.appendChild(burst);
+
+    for (let i = 0; i < count; i++) {
+      const piece = document.createElement("i");
+      piece.className = "confetti";
+      const hueBase = target === "X" ? 210 : 10; // blue/red-ish
+      const hue = hueBase + Math.floor(Math.random() * 30) - 15;
+      const sat = 70 + Math.floor(Math.random() * 30);
+      const light = 50 + Math.floor(Math.random() * 10);
+      piece.style.setProperty("--confetti-color", `hsl(${hue} ${sat}% ${light}%)`);
+      piece.style.setProperty("--tx", (Math.random() * 2 - 1).toFixed(2));
+      piece.style.setProperty("--rot", (Math.random() * 720 - 360).toFixed(0));
+      piece.style.left = Math.random() * 100 + "%";
+      piece.style.setProperty("--scale", (0.6 + Math.random() * 0.8).toFixed(2));
+      piece.style.animationDelay = (Math.random() * 0.1).toFixed(2) + "s";
+      piece.style.animationDuration = (1.5 + Math.random() * 0.9).toFixed(2) + "s";
+      burst.appendChild(piece);
+    }
+    setTimeout(() => burst.remove(), 2600);
+  }
+
+  // ---------- UI ----------
   return (
-    <div style={{position: "relative", width: "100%"}}>
-      {/* Manual button, only visible if no overlay menu is shown */}
+    <div style={{ position: "relative", width: "100%" }}>
+      {/* Manual toggle (hidden when rematch overlays block) */}
       {(phase === "landing" || phase === "waiting" || phase === "playing" || phase === "over") &&
         !((rematchRequested && phase !== "playing") || (phase === "over" && draw) || (rematchPending && phase !== "playing")) && (
-        <button
-          className="primary manual-btn"
-          style={{position: "fixed", top: 18, right: 18, zIndex: 200, fontSize: 14, padding: "8px 16px"}}
-          onClick={() => setShowManual((v) => !v)}
-        >{showManual ? "Back to Game" : "Manual"}</button>
+          <button
+            className="primary manual-btn"
+            style={{ position: "fixed", top: 18, right: 18, zIndex: 200, fontSize: 14, padding: "8px 16px" }}
+            onClick={() => setShowManual((v) => !v)}
+          >
+            {showManual ? "Back to Game" : "Manual"}
+          </button>
       )}
-      {/* Lautstärke-Menü */}
+
+      {/* Volume Menu */}
       {showVolumeMenu && (
         <div className="volume-menu">
           <h3>🔊 Lautstärke</h3>
           <div className="volume-row">
             <label>Musik</label>
             <input
-              type="range"
-              min={0}
-              max={1}
-              step={0.01}
+              type="range" min={0} max={1} step={0.01}
               value={musicVolume}
               onChange={e => {
                 setMusicVolume(Number(e.target.value));
@@ -285,10 +423,7 @@ export default function App() {
           <div className="volume-row">
             <label>Effekte</label>
             <input
-              type="range"
-              min={0}
-              max={1}
-              step={0.01}
+              type="range" min={0} max={1} step={0.01}
               value={effectVolume}
               onChange={e => {
                 setEffectVolume(Number(e.target.value));
@@ -297,14 +432,16 @@ export default function App() {
             />
             <span>{Math.round(effectVolume * 100)}%</span>
           </div>
-          <div style={{fontSize:12, marginTop:8, opacity:.7}}>Menü mit Taste <b>M</b> öffnen/schließen</div>
+          <div style={{ fontSize: 12, marginTop: 8, opacity: .7 }}>Menü mit Taste <b>M</b> öffnen/schließen</div>
         </div>
       )}
-      {/* Audio-Elemente für Sounds und Musik */}
+
+      {/* Audio elements */}
       <audio ref={victoryRef} src="/victory.wav" preload="auto" />
       <audio ref={gameoverRef} src="/gameover.wav" preload="auto" />
       <audio ref={bgMusicRef} src="/bgmusic.wav" preload="auto" />
-      {/* Hintergrund-Animationen als festen Container mit niedrigem zIndex */}
+
+      {/* Background animations */}
       <div className="background-animations">
         {(phase === "over" && winner === mySymbol) && (
           <Confetti
@@ -321,73 +458,73 @@ export default function App() {
         )}
       </div>
 
-      {/* Manual page as overlay, only in main/game phases */}
+      {/* Manual overlay */}
       {showManual && (phase === "landing" || phase === "waiting" || phase === "playing" || phase === "over") && (
         <div className="manual-overlay">
           <div className="manual-card">
-            <h2>- How to Play- </h2>
-            <ul style={{textAlign: "left", maxWidth: 420, margin: "0 auto", fontSize: "1.05rem", lineHeight: "1.7"}}>
+            <h2>- How to Play -</h2>
+            <ul style={{ textAlign: "left", maxWidth: 420, margin: "0 auto", fontSize: "1.05rem", lineHeight: "1.7" }}>
               <li>This is classic Tic-Tac-Toe for 2 players.</li>
               <li>One player is <b>X</b>, the other is <b>O</b>.</li>
               <li>Players take turns marking a cell on the 3x3 board.</li>
               <li>The first to get 3 in a row, column, or diagonal wins.</li>
-              <li>If all cells are filled and nobody has 3 in a row, the game ends in a draw.</li>
+              <li>If all cells fill with no 3-in-a-row, it’s a draw.</li>
               <li>Use the "Rematch" button to request a new round.</li>
               <li>Use "New Match" to generate a new game code.</li>
               <li>Adjust volume with <b>M</b> (menu at top right).</li>
-              <li>Arcade sounds and animations create a true retro feeling!</li>
+              <li>Arcade sounds and animations create a retro vibe!</li>
             </ul>
-            <div style={{marginTop: 18, fontSize: 12, opacity: .7}}>Press <b>ESC</b> or click "Back to Game" to close this manual.</div>
+            <div style={{ marginTop: 18, fontSize: 12, opacity: .7 }}>
+              Press <b>ESC</b> or click "Back to Game" to close this manual.
+            </div>
           </div>
         </div>
       )}
-      {/* Opponent left overlay: blocks interaction until new match */}
+
+      {/* Opponent-left overlay */}
       {error === "Your opponent has left the game." && (
-        <div className="opponent-left-overlay" style={{position: "fixed", top:0, left:0, width:"100vw", height:"100vh", background:"rgba(0,0,0,0.7)", zIndex:999, display:"flex", alignItems:"center", justifyContent:"center"}}>
-          <div style={{background:"#222", color:"#fff", padding:"32px 40px", borderRadius:16, boxShadow:"0 2px 16px #000", textAlign:"center"}}>
-            <h2 style={{marginBottom:16}}>Opponent left the game</h2>
-            <p style={{marginBottom:24}}>Your opponent has left. Start a new match to play again.</p>
-            <button className="primary" style={{fontSize:18, padding:"10px 24px"}} onClick={() => {
-              setPhase("landing");
-              setBoard(emptyBoard);
-              setWinner(null);
-              setDraw(false);
-              setMySymbol(null);
-              setNext("X");
-              setRematchRequested(false);
-              setRematchPending(false);
-              setError("");
-            }}>New Match</button>
+        <div className="opponent-left-overlay" style={{ position: "fixed", top: 0, left: 0, width: "100vw", height: "100vh", background: "rgba(0,0,0,0.7)", zIndex: 999, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ background: "#222", color: "#fff", padding: "32px 40px", borderRadius: 16, boxShadow: "0 2px 16px #000", textAlign: "center" }}>
+            <h2 style={{ marginBottom: 16 }}>Opponent left the game</h2>
+            <p style={{ marginBottom: 24 }}>Your opponent has left. Start a new match to play again.</p>
+            <button
+              className="primary"
+              style={{ fontSize: 18, padding: "10px 24px" }}
+              onClick={() => resetToLanding(true)}
+            >
+              New Match
+            </button>
           </div>
         </div>
       )}
-      <div className="container" style={showManual ? {filter: "blur(2px)", pointerEvents: "none", userSelect: "none"} : {}}>
+
+      <div className="container" style={showManual ? { filter: "blur(2px)", pointerEvents: "none", userSelect: "none" } : {}}>
         <img
           src="/Logo.png"
           alt="Tic-Tac-Toe Logo"
           className="logo"
-          style={{cursor: "pointer"}}
-          onClick={() => {
-            if (code) socket.emit("new_match", { code });
-            setPhase("landing");
-            setBoard(emptyBoard);
-            setWinner(null);
-            setDraw(false);
-            setMySymbol(null);
-            setNext("X");
-            setRematchRequested(false);
-            setRematchPending(false);
-            setError("");
-          }}
+          style={{ cursor: "pointer" }}
+          onClick={() => resetToLanding(true)}
         />
+
         <div className={`conn ${socketConnected ? "ok" : "bad"}`}>
           Socket: {socketConnected ? "connected" : "disconnected"}
         </div>
 
+        {/* Landing */}
         {phase === "landing" && (
           <div className="card">
             <h2>New Game</h2>
-            <button className="primary" onClick={createGame}>Create Game</button>
+            <div className="join join--stack" style={{ marginBottom: 8 }}>
+              <input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Your name (optional)"
+                maxLength={24}
+                aria-label="Your name"
+              />
+              <button className="primary" onClick={createGame}>Create Game</button>
+            </div>
 
             <div className="divider">or</div>
 
@@ -398,13 +535,25 @@ export default function App() {
                 onChange={(e) => setCode(e.target.value.toUpperCase())}
                 placeholder="CODE (e.g. A1B2C3)"
                 maxLength={8}
+                aria-label="Game code"
+              />
+              <input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Your name (optional)"
+                maxLength={24}
+                aria-label="Your name"
               />
               <button onClick={joinGame}>Join</button>
+              <button className="btn-secondary" onClick={watchGame}>Watch only</button>
             </div>
+            {!!error && !error.startsWith("Invalid game code!") && !error.startsWith("This game code does not exist!") && (
+              <div className="error">{error}</div>
+            )}
           </div>
         )}
 
-
+        {/* Waiting */}
         {phase === "waiting" && (
           <div className="card">
             <h2>Waiting for opponent …</h2>
@@ -418,49 +567,103 @@ export default function App() {
                   setTimeout(() => setCopied(false), 1200);
                 }}
               >Copy</button>
-              {copied && (
-                <span className="copy-feedback">Copy!</span>
-              )}
+              {copied && <span className="copy-feedback">Copy!</span>}
             </div>
             <p>Share this code with your opponent.</p>
             {mySymbol && <p>You are: <strong>{mySymbol}</strong></p>}
+            <div className="playersbar" style={{ marginTop: 8 }}>
+              <span className="pair"><span className="pill pill--X">X</span>&nbsp;{players.X || "?"}</span>
+              <span className="sep">·</span>
+              <span className="pair"><span className="pill pill--O">O</span>&nbsp;{players.O || "?"}</span>
+            </div>
+            <div className="audience">Spectators: <strong>{spectatorCount}</strong></div>
           </div>
         )}
 
+        {/* Playing / Over */}
         {(phase === "playing" || phase === "over") && (
           <div className="game">
             <div className="top">
               <div>Code: <code className="code">{code}</code></div>
-              <div>You are: <strong>{mySymbol}</strong></div>
+
+              {/* Role display */}
+              <div className="role">
+                {spectating ? (
+                  <span className="badge badge--spectator" title="Spectator mode">Spectator</span>
+                ) : (
+                  <>
+                    You are: <strong>{name || "Guest"}</strong>
+                    {mySymbol && <> &nbsp;(<span className={`pill pill--${mySymbol}`}>{mySymbol}</span>)</>}
+                  </>
+                )}
+              </div>
             </div>
 
-            <Board board={board} onMove={makeMove} disabled={phase !== "playing" || !myTurn} />
+            {/* Players visible to everyone */}
+            <div className="playersbar">
+              <span className="pair"><span className="pill pill--X">X</span>&nbsp;{players.X || "?"}</span>
+              <span className="sep">·</span>
+              <span className="pair"><span className="pill pill--O">O</span>&nbsp;{players.O || "?"}</span>
+            </div>
+
+            {/* Spectator count */}
+            <div className="audience">Spectators: <strong>{spectatorCount}</strong></div>
+
+            <Board
+              board={board}
+              onMove={makeMove}
+              disabled={phase !== "playing" || spectating || !myTurn}
+            />
 
             <div className="status">
               {phase === "playing" && (
-                <p>{myTurn ? "Your turn." : "Opponent's turn."} (Next: <strong>{next}</strong>)</p>
+                <p>
+                  {spectating ? "You are watching." : myTurn ? "Your turn." : "Opponent's turn."}
+                  {" "} (Next: <strong>{next}</strong>)
+                </p>
               )}
               {phase === "over" && (
-                <p>{draw ? "Draw!" : winner === mySymbol ? "You won!" : "You lost."}</p>
+                <p>
+                  {draw
+                    ? "Draw!"
+                    : spectating
+                    ? `${winner} won!`
+                    : winner === mySymbol
+                    ? "You won!"
+                    : "You lost."}
+                </p>
               )}
             </div>
 
+            {/* Cheer section for spectators */}
+            {spectating && (phase === "playing" || phase === "waiting") && (
+              <div className="cheer">
+                <div className="cheer__title">Cheer:</div>
+                <div className="cheer__buttons">
+                  <button onClick={() => cheer("X")} disabled={!canCheer()}>
+                    Cheer for X {cooldown > 0 ? `(${cooldown}s)` : ""}
+                  </button>
+                  <button onClick={() => cheer("O")} disabled={!canCheer()}>
+                    Cheer for O {cooldown > 0 ? `(${cooldown}s)` : ""}
+                  </button>
+                </div>
+                <div className="cheer__hint">You can cheer every 10 seconds.</div>
+              </div>
+            )}
+
             <div className="actions">
-              {phase === "playing" && <button className="danger" onClick={resign}>Resign</button>}
-              {phase === "over" && <button onClick={rematch} disabled={rematchDeclined}>Rematch</button>}
-              <button onClick={() => {
-                if (code) socket.emit("new_match", { code });
-                setPhase("landing");
-                setBoard(emptyBoard);
-                setWinner(null);
-                setDraw(false);
-                setMySymbol(null);
-                setNext("X");
-                setRematchRequested(false); 
-                setRematchPending(false);   
-                setRematchDeclined(false);
-                setError("");
-              }}>New Match</button>
+              {!spectating && phase === "playing" && (
+                <button className="danger" onClick={resign}>Resign</button>
+              )}
+              {!spectating && phase === "over" && (
+                <button onClick={rematch} disabled={rematchDeclined}>Rematch</button>
+              )}
+              <button
+                onClick={() => resetToLanding(true)}
+                className="btn-ghost"
+              >
+                New Match
+              </button>
             </div>
           </div>
         )}
@@ -476,21 +679,16 @@ export default function App() {
                 <button onClick={() => {
                   if (code) socket.emit("decline_rematch", { code });
                   setRematchRequested(false);
-                  setDraw(false);
-                  setError("");
-                  setPhase("landing");
-                  setBoard(emptyBoard);
-                  setWinner(null);
-                  setMySymbol(null);
-                  setNext("X");
                   setRematchPending(false);
+                  setDraw(false);
+                  resetToLanding(false);
                 }}>Decline</button>
               </div>
             </div>
           </div>
         ) : null}
 
-        {/* Rematch pending menu as overlay, can be cancelled with ESC or X */}
+        {/* Rematch pending overlay */}
         {rematchPending && phase !== "playing" && (
           <div className="rematch-menu-overlay">
             <button className="rematch-cancel-btn" title="Cancel" onClick={() => { setRematchPending(false); setError(""); }}>&#10005;</button>
@@ -501,28 +699,28 @@ export default function App() {
           </div>
         )}
 
-        {/* Error overlay for invalid code from backend */}
+        {/* Error overlays */}
         {error && error.startsWith("This game code does not exist!") && (
-          <div className="error-overlay" style={{position:"fixed",top:0,left:0,width:"100vw",height:"100vh",background:"rgba(0,0,0,0.7)",zIndex:999,display:"flex",alignItems:"center",justifyContent:"center"}}>
-            <div style={{background:"#222",color:"#fff",padding:"32px 40px",borderRadius:16,boxShadow:"0 2px 16px #000",textAlign:"center"}}>
-              <h2 style={{marginBottom:16}}>Game Code Not Found</h2>
-              <p style={{marginBottom:24}}>This code does not exist.<br/>Please check the code and try again.<br/>Codes are usually a mix of letters and numbers (e.g. <b>A1B2C3</b>).</p>
-              <button className="primary" style={{fontSize:18,padding:"10px 24px"}} onClick={()=>setError("")}>OK</button>
+          <div className="error-overlay" style={{ position:"fixed", top:0, left:0, width:"100vw", height:"100vh", background:"rgba(0,0,0,0.7)", zIndex:999, display:"flex", alignItems:"center", justifyContent:"center" }}>
+            <div style={{ background:"#222", color:"#fff", padding:"32px 40px", borderRadius:16, boxShadow:"0 2px 16px #000", textAlign:"center" }}>
+              <h2 style={{ marginBottom:16 }}>Game Code Not Found</h2>
+              <p style={{ marginBottom:24 }}>This code does not exist.<br/>Please check the code and try again.<br/>Codes are usually a mix of letters and numbers (e.g. <b>A1B2C3</b>).</p>
+              <button className="primary" style={{ fontSize:18, padding:"10px 24px" }} onClick={() => setError("")}>OK</button>
             </div>
           </div>
         )}
-        {/* Error overlay for invalid code (client-side) */}
-        {error && error.startsWith("Invalid game code!") && (
-          <div className="error-overlay" style={{position:"fixed",top:0,left:0,width:"100vw",height:"100vh",background:"rgba(0,0,0,0.7)",zIndex:999,display:"flex",alignItems:"center",justifyContent:"center"}}>
-            <div style={{background:"#222",color:"#fff",padding:"32px 40px",borderRadius:16,boxShadow:"0 2px 16px #000",textAlign:"center"}}>
-              <h2 style={{marginBottom:16}}>Invalid Game Code</h2>
-              <p style={{marginBottom:24}}>Please enter a valid code with at least 4 characters.<br/>Codes are usually a mix of letters and numbers (e.g. <b>A1B2C3</b>).</p>
-              <button className="primary" style={{fontSize:18,padding:"10px 24px"}} onClick={()=>setError("")}>OK</button>
+        {error && error.startsWith("❌ Invalid game code!") && (
+          <div className="error-overlay" style={{ position:"fixed", top:0, left:0, width:"100vw", height:"100vh", background:"rgba(0,0,0,0.7)", zIndex:999, display:"flex", alignItems:"center", justifyContent:"center" }}>
+            <div style={{ background:"#222", color:"#fff", padding:"32px 40px", borderRadius:16, boxShadow:"0 2px 16px #000", textAlign:"center" }}>
+              <h2 style={{ marginBottom:16 }}>Invalid Game Code</h2>
+              <p style={{ marginBottom:24 }}>Please enter a valid code with at least 4 characters.<br/>Codes are usually a mix of letters and numbers (e.g. <b>A1B2C3</b>).</p>
+              <button className="primary" style={{ fontSize:18, padding:"10px 24px" }} onClick={() => setError("")}>OK</button>
             </div>
           </div>
         )}
-        {/* Other errors */}
-        {error && !error.startsWith("Invalid game code!") && !error.startsWith("This game code does not exist!") && <div className="error">{error}</div>}
+        {error && !error.startsWith("❌ Invalid game code!") && !error.startsWith("This game code does not exist!") && error !== "Your opponent has left the game." && (
+          <div className="error">{error}</div>
+        )}
       </div>
     </div>
   );

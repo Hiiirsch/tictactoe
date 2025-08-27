@@ -670,6 +670,9 @@ function fireConfetti(targetOrOpts) {
                   <QRCodeSVG
                     value={`${window.location.origin}?code=${code}`}
                     size={128}
+                    bgColor="#2c2f33"
+                    fgColor="#e0e0e0"
+                    className="qr-custom"
                   />
                   <p>Scan this QR code to join the game!</p>
                 </>

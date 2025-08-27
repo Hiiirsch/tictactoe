@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { QRCodeSVG } from "qrcode.react";
 import { io } from "socket.io-client";
 import Confetti from "react-confetti";
 import "./styles.css";
@@ -78,6 +79,18 @@ export default function App() {
     [spectating, phase, mySymbol, next]
   );
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const codeFromURL = params.get("code");
+    if (codeFromURL) {
+      const upperCode = codeFromURL.toUpperCase();
+      setCode(upperCode);        // setzt den Input-Feld-Wert
+      joinGame(upperCode);       // ruft joinGame direkt mit dem Code auf
+    }
+  }, []);
+
+
+
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -126,14 +139,28 @@ useEffect(() => {
       try {
         victoryRef.current.currentTime = 0;
         victoryRef.current.volume = effectVolume;
-        victoryRef.current.play().catch(() => {});
-      } catch {}
-    } else if (winner !== mySymbol && gameoverRef.current) {
-      try {
+        victoryRef.current.play().catch(() => {
+          console.log("Victory sound blocked.");
+        });
+      } else if (winner !== mySymbol && gameoverRef.current) {
         gameoverRef.current.currentTime = 0;
         gameoverRef.current.volume = effectVolume;
-        gameoverRef.current.play().catch(() => {});
-      } catch {}
+        gameoverRef.current.play().catch(() => {
+          console.log("Game over sound blocked.");
+        });
+      }
+      if (bgMusicRef.current) {
+        bgMusicRef.current.pause();
+        bgMusicRef.current.currentTime = 0;
+      }
+    }
+    if (phase === "playing" && bgMusicRef.current) {
+      bgMusicRef.current.volume = musicVolume;
+      bgMusicRef.current.loop = true;
+      bgMusicRef.current.play().catch(() => {
+        console.log("Autoplay blocked: user interaction required.");
+      });
+
     }
     if (bgMusicRef.current) {
       bgMusicRef.current.pause();
@@ -243,8 +270,8 @@ useEffect(() => {
           payload.status === "waiting"
             ? "waiting"
             : payload.status === "playing"
-            ? "playing"
-            : "over"
+              ? "playing"
+              : "over"
         );
       }
       if (typeof payload.winner !== "undefined") setWinner(payload.winner);
@@ -313,12 +340,17 @@ useEffect(() => {
 
   function joinGame() {
     if (!code || code.length < 4) {
+  function joinGame(customCode) {
+    const gameCode = customCode || code; // falls kein Argument, nimm State
+    console.log("Joining game with code:", gameCode);
+    if (!gameCode || gameCode.length < 4) {
       setError("Invalid game code! Please enter a code with at least 4 characters.");
       return;
     }
     setError("");
-    socket.emit("join", { code, name: name || "Guest" });
+    socket.emit("join", { code: gameCode, name: name || "Guest" });
   }
+
 
   function watchGame() {
     if (!code || code.length < 4) return setError("Please enter a valid code.");
@@ -452,7 +484,7 @@ function fireConfetti(targetOrOpts) {
           >
             {showManual ? "Back to Game" : "Manual"}
           </button>
-      )}
+        )}
 
       {/* Volume Menu */}
       {showVolumeMenu && (
@@ -620,6 +652,18 @@ function fireConfetti(targetOrOpts) {
               {copied && <span className="copy-feedback">Copy!</span>}
             </div>
             <p>Share this code with your opponent.</p>
+            <div className="qr-code">
+              {code && (
+                <>
+                  <QRCodeSVG
+                    value={`${window.location.origin}?code=${code}`}
+                    size={128}
+                  />
+                  <p>Scan this QR code to join the game!</p>
+                </>
+              )}
+            </div>
+
             {mySymbol && <p>You are: <strong>{mySymbol}</strong></p>}
             <div className="playersbar" style={{ marginTop: 8 }}>
               <span className="pair"><span className="pill pill--X">X</span>&nbsp;{players.X || "?"}</span>
@@ -676,10 +720,10 @@ function fireConfetti(targetOrOpts) {
                   {draw
                     ? "Draw!"
                     : spectating
-                    ? `${winner} won!`
-                    : winner === mySymbol
-                    ? "You won!"
-                    : "You lost."}
+                      ? `${winner} won!`
+                      : winner === mySymbol
+                        ? "You won!"
+                        : "You lost."}
                 </p>
               )}
             </div>
@@ -750,11 +794,11 @@ function fireConfetti(targetOrOpts) {
 
         {/* Error overlays */}
         {error && error.startsWith("This game code does not exist!") && (
-          <div className="error-overlay" style={{ position:"fixed", top:0, left:0, width:"100vw", height:"100vh", background:"rgba(0,0,0,0.7)", zIndex:999, display:"flex", alignItems:"center", justifyContent:"center" }}>
-            <div style={{ background:"#222", color:"#fff", padding:"32px 40px", borderRadius:16, boxShadow:"0 2px 16px #000", textAlign:"center" }}>
-              <h2 style={{ marginBottom:16 }}>Game Code Not Found</h2>
-              <p style={{ marginBottom:24 }}>This code does not exist.<br/>Please check the code and try again.<br/>Codes are usually a mix of letters and numbers (e.g. <b>A1B2C3</b>).</p>
-              <button className="primary" style={{ fontSize:18, padding:"10px 24px" }} onClick={() => setError("")}>OK</button>
+          <div className="error-overlay" style={{ position: "fixed", top: 0, left: 0, width: "100vw", height: "100vh", background: "rgba(0,0,0,0.7)", zIndex: 999, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <div style={{ background: "#222", color: "#fff", padding: "32px 40px", borderRadius: 16, boxShadow: "0 2px 16px #000", textAlign: "center" }}>
+              <h2 style={{ marginBottom: 16 }}>Game Code Not Found</h2>
+              <p style={{ marginBottom: 24 }}>This code does not exist.<br />Please check the code and try again.<br />Codes are usually a mix of letters and numbers (e.g. <b>A1B2C3</b>).</p>
+              <button className="primary" style={{ fontSize: 18, padding: "10px 24px" }} onClick={() => setError("")}>OK</button>
             </div>
           </div>
         )}
@@ -774,6 +818,20 @@ function fireConfetti(targetOrOpts) {
           && error !== "cheer_rate_limited"   
           && <div className="error">{error}</div>}
 
+          <div className="error-overlay" style={{ position:"fixed", top:0, left:0, width:"100vw", height:"100vh", background:"rgba(0,0,0,0.7)", zIndex:999, display:"flex", alignItems:"center", justifyContent:"center" }}>
+            <div style={{ background:"#222", color:"#fff", padding:"32px 40px", borderRadius:16, boxShadow:"0 2px 16px #000", textAlign:"center" }}>
+              <h2 style={{ marginBottom:16 }}>Invalid Game Code</h2>
+              <p style={{ marginBottom:24 }}>Please enter a valid code with at least 4 characters.<br/>Codes are usually a mix of letters and numbers (e.g. <b>A1B2C3</b>).</p>
+              <button className="primary" style={{ fontSize:18, padding:"10px 24px" }} onClick={() => setError("")}>OK</button>
+            </div>
+          </div>
+        )}
+        {error
+          && !error.startsWith("Invalid game code!")
+          && !error.startsWith("This game code does not exist!")
+          && error !== "Your opponent has left the game."
+          && error !== "cheer_rate_limited"   
+          && <div className="error">{error}</div>}
       </div>
     </div>
   );

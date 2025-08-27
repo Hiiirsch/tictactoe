@@ -130,16 +130,17 @@ export default function App() {
   const gameoverRef = useRef(null);
   const bgMusicRef = useRef(null);
 
-  // Music & SFX on phase change (players only; spectators stay silent to avoid autoplay blocks)
+
+// Music & SFX on phase change (players only; spectators stay silent)
   useEffect(() => {
     const bg = bgMusicRef.current;
 
     const playBg = () => {
       if (!bg) return;
-      bg.volume = musicVolume;
-      bg.loop = true;
+      bg.volume = musicVolume;   // Lautstärke vom Slider
+      bg.loop = true;            // Endlos-Schleife
       bg.play().catch(() => {
-        // Autoplay may be blocked until user interacts.
+        // Autoplay wird vom Browser blockiert, bis User interagiert
       });
     };
 
@@ -149,25 +150,25 @@ export default function App() {
       bg.currentTime = 0;
     };
 
-    // Spectators: no auto playback
+    // Zuschauer hören nichts automatisch
     if (spectating) {
       stopBg();
       return;
     }
 
     if (phase === "playing") {
-      playBg();
+      playBg();    // Hintergrundmusik startet beim Spielbeginn
       return;
     }
 
     if (phase === "over") {
-      stopBg();
+      stopBg();    // Musik stoppt bei Spielende
       if (winner) {
         const sfx = winner === mySymbol ? victoryRef.current : gameoverRef.current;
         if (sfx) {
           try {
             sfx.currentTime = 0;
-            sfx.volume = effectVolume;
+            sfx.volume = effectVolume;  // Lautstärke von Effekten-Slider
             sfx.play().catch(() => {});
           } catch {}
         }
@@ -175,9 +176,10 @@ export default function App() {
       return;
     }
 
-    // landing / waiting
+    // Landing / Waiting
     stopBg();
   }, [phase, winner, mySymbol, musicVolume, effectVolume, spectating]);
+
 
   // Socket wiring
   useEffect(() => {
@@ -327,6 +329,27 @@ export default function App() {
       setError(e.message);
     }
   }
+
+
+  async function copyText(text) {
+  // Modernes Clipboard in sicherem Kontext
+  if (navigator.clipboard && window.isSecureContext) {
+    return navigator.clipboard.writeText(text);
+  }
+  // Fallback für http://IP und ältere Browser
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.style.position = "fixed";
+  ta.style.left = "-9999px";
+  document.body.appendChild(ta);
+  ta.focus();
+  ta.select();
+  try {
+    document.execCommand("copy");
+  } finally {
+    document.body.removeChild(ta);
+  }
+}
 
   // Join game (optional explicit code for deep links)
   function joinGame(customCode) {
@@ -633,11 +656,18 @@ export default function App() {
               <button
                 className="copy-btn"
                 onClick={async () => {
-                  await navigator.clipboard.writeText(code);
-                  setCopied(true);
-                  setTimeout(() => setCopied(false), 1200);
+                  try {
+                    await copyText(code);
+                    setCopied(true);
+                    setTimeout(() => setCopied(false), 1200);
+                  } catch {
+                    setError("Copy failed. Please copy the code manually.");
+                  }
                 }}
-              >Copy</button>
+              >
+                Copy
+              </button>
+
               {copied && <span className="copy-feedback">Copy!</span>}
             </div>
             <p>Share this code with your opponent.</p>

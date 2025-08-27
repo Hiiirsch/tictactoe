@@ -123,9 +123,20 @@ export default function App() {
   const bgMusicRef = useRef(null);
 
   // Music & SFX on phase change
-  useEffect(() => {
-    if (phase === "over" && winner) {
-      if (winner === mySymbol && victoryRef.current) {
+// Music & SFX on phase change (nur Spieler; Zuschauer: keine Auto-Playback-Errors)
+useEffect(() => {
+  // Zuschauer hören nichts automatisch (Autoplay-Verbot vermeiden)
+  if (spectating) {
+    if (bgMusicRef.current) {
+      bgMusicRef.current.pause();
+      bgMusicRef.current.currentTime = 0;
+    }
+    return;
+  }
+
+  if (phase === "over" && winner) {
+    if (winner === mySymbol && victoryRef.current) {
+      try {
         victoryRef.current.currentTime = 0;
         victoryRef.current.volume = effectVolume;
         victoryRef.current.play().catch(() => {
@@ -149,12 +160,27 @@ export default function App() {
       bgMusicRef.current.play().catch(() => {
         console.log("Autoplay blocked: user interaction required.");
       });
+
     }
-    if ((phase === "landing" || phase === "waiting") && bgMusicRef.current) {
+    if (bgMusicRef.current) {
       bgMusicRef.current.pause();
       bgMusicRef.current.currentTime = 0;
     }
-  }, [phase, winner, mySymbol, musicVolume, effectVolume]);
+  }
+
+  if (phase === "playing" && bgMusicRef.current) {
+    try {
+      bgMusicRef.current.volume = musicVolume;
+      bgMusicRef.current.loop = true;
+      bgMusicRef.current.play().catch(() => {});
+    } catch {}
+  }
+
+  if ((phase === "landing" || phase === "waiting") && bgMusicRef.current) {
+    bgMusicRef.current.pause();
+    bgMusicRef.current.currentTime = 0;
+  }
+}, [phase, winner, mySymbol, musicVolume, effectVolume, spectating]);
 
   // Socket
   const socket = useMemo(() => {
@@ -225,12 +251,14 @@ export default function App() {
 
     // Backend errors
     socket.on("error", ({ message }) => {
+      if (message === "cheer_rate_limited") return; // 👈 nicht ins UI schreiben
       if (message === "invalid_code") {
         setError("This game code does not exist! Please check the code and try again.");
       } else {
         setError(message || "Unknown error");
       }
     });
+
 
     // Spectator snapshot
     socket.on("spectator", (payload = {}) => {
@@ -310,6 +338,8 @@ export default function App() {
     }
   }
 
+  function joinGame() {
+    if (!code || code.length < 4) {
   function joinGame(customCode) {
     const gameCode = customCode || code; // falls kein Argument, nimm State
     console.log("Joining game with code:", gameCode);
@@ -385,31 +415,61 @@ export default function App() {
     fireConfetti(target);
   }
 
-  function fireConfetti(target) {
-    const container = document.body;
-    const count = 120;
-    const burst = document.createElement("div");
-    burst.className = "confetti-burst";
-    container.appendChild(burst);
-
-    for (let i = 0; i < count; i++) {
-      const piece = document.createElement("i");
-      piece.className = "confetti";
-      const hueBase = target === "X" ? 210 : 10; // blue/red-ish
-      const hue = hueBase + Math.floor(Math.random() * 30) - 15;
-      const sat = 70 + Math.floor(Math.random() * 30);
-      const light = 50 + Math.floor(Math.random() * 10);
-      piece.style.setProperty("--confetti-color", `hsl(${hue} ${sat}% ${light}%)`);
-      piece.style.setProperty("--tx", (Math.random() * 2 - 1).toFixed(2));
-      piece.style.setProperty("--rot", (Math.random() * 720 - 360).toFixed(0));
-      piece.style.left = Math.random() * 100 + "%";
-      piece.style.setProperty("--scale", (0.6 + Math.random() * 0.8).toFixed(2));
-      piece.style.animationDelay = (Math.random() * 0.1).toFixed(2) + "s";
-      piece.style.animationDuration = (1.5 + Math.random() * 0.9).toFixed(2) + "s";
-      burst.appendChild(piece);
-    }
-    setTimeout(() => burst.remove(), 2600);
+function fireConfetti(targetOrOpts) {
+  // Mapping: X -> links/blau, O -> rechts/rot
+  let side, hueBase;
+  if (typeof targetOrOpts === "string") {
+    const t = String(targetOrOpts).toUpperCase();
+    side = t === "X" ? "left" : "right";
+    hueBase = t === "X" ? 210 : 8;   // blau / rot
+  } else {
+    side = targetOrOpts?.side === "right" ? "right" : "left";
+    hueBase = targetOrOpts?.color === "red" ? 8 : 210;
   }
+
+  // Host möglichst nah am Spielfeld
+  const host =
+    document.querySelector(".board") ||
+    document.querySelector(".game") ||
+    document.body;
+
+  const lane = document.createElement("div");
+  lane.className = `confetti-lane confetti-lane--${side}`;
+  host.appendChild(lane);
+
+  const count = 42; // bewusst überschaubar halten
+  for (let i = 0; i < count; i++) {
+    const piece = document.createElement("i");
+    piece.className = "confetti-piece";
+
+    // kleine Form-Variation
+    const r = Math.random();
+    if (r < 0.25) piece.classList.add("is-dot");
+    else if (r > 0.75) piece.classList.add("is-wide");
+
+    // Farbe: Grundton mit leichter Varianz
+    const hue = hueBase + Math.floor(Math.random() * 24) - 12;
+    const sat = 80 + Math.floor(Math.random() * 12);
+    const light = 52 + Math.floor(Math.random() * 10);
+    piece.style.setProperty("--confetti-color", `hsl(${hue} ${sat}% ${light}%)`);
+
+    // vertikale Verteilung über die ganze Board-Höhe
+    piece.style.setProperty("--y", `${Math.floor(Math.random() * 100)}%`);
+
+    // Bewegung: etwas Horizontal-Spread & vertikaler Drift
+    piece.style.setProperty("--tx", (Math.random() * 1.0 + 0.1).toFixed(2));      // 0.1..1.1
+    piece.style.setProperty("--vy", (Math.random() * 80 - 40).toFixed(0));        // -40..+40 px
+    piece.style.setProperty("--rot", (Math.random() * 720 - 360).toFixed(0) + "deg");
+    piece.style.setProperty("--scale", (0.7 + Math.random() * 0.6).toFixed(2));   // 0.7..1.3
+    piece.style.setProperty("--dur", (750 + Math.random() * 450).toFixed(0) + "ms");
+    piece.style.setProperty("--delay", (Math.random() * 100).toFixed(0) + "ms");
+
+    lane.appendChild(piece);
+  }
+
+  // Auto-Cleanup
+  setTimeout(() => lane.remove(), 1400);
+}
 
   // ---------- UI ----------
   return (
@@ -429,7 +489,7 @@ export default function App() {
       {/* Volume Menu */}
       {showVolumeMenu && (
         <div className="volume-menu">
-          <h3>🔊 Lautstärke</h3>
+          <h3>Lautstärke</h3>
           <div className="volume-row">
             <label>Musik</label>
             <input
@@ -463,22 +523,24 @@ export default function App() {
       <audio ref={gameoverRef} src="/gameover.wav" preload="auto" />
       <audio ref={bgMusicRef} src="/bgmusic.wav" preload="auto" />
 
-      {/* Background animations */}
-      <div className="background-animations">
-        {(phase === "over" && winner === mySymbol) && (
-          <Confetti
-            width={window.innerWidth}
-            height={window.innerHeight}
-            numberOfPieces={600}
-            gravity={0.5}
-            initialVelocityY={20}
-            recycle={true}
-          />
-        )}
-        {(phase === "over" && winner && winner !== mySymbol) && (
-          <div className="shake-bg" />
-        )}
-      </div>
+    {/* Background animations */}
+    <div className="background-animations">
+      {/* Nur Spieler sehen Gewinn-/Verlust-Animationen */}
+      {(!spectating && phase === "over" && winner === mySymbol) && (
+        <Confetti
+          width={window.innerWidth}
+          height={window.innerHeight}
+          numberOfPieces={600}
+          gravity={0.5}
+          initialVelocityY={20}
+          recycle={true}
+        />
+      )}
+      {(!spectating && phase === "over" && winner && winner !== mySymbol) && (
+        <div className="shake-bg" />
+      )}
+    </div>
+
 
       {/* Manual overlay */}
       {showManual && (phase === "landing" || phase === "waiting" || phase === "playing" || phase === "over") && (
@@ -533,20 +595,21 @@ export default function App() {
           Socket: {socketConnected ? "connected" : "disconnected"}
         </div>
 
-        {/* Landing */}
         {phase === "landing" && (
           <div className="card">
-            <h2>New Game</h2>
-            <div className="join join--stack" style={{ marginBottom: 8 }}>
+            <h2>Player Name</h2>
+            <div className="join join--stack" style={{ marginBottom: 12 }}>
               <input
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="Your name (optional)"
+                placeholder="Your name"
                 maxLength={24}
                 aria-label="Your name"
               />
-              <button className="primary" onClick={createGame}>Create Game</button>
             </div>
+
+            <h2>New Game</h2>
+            <button className="primary" onClick={createGame}>Create Game</button>
 
             <div className="divider">or</div>
 
@@ -559,21 +622,18 @@ export default function App() {
                 maxLength={8}
                 aria-label="Game code"
               />
-              <input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Your name (optional)"
-                maxLength={24}
-                aria-label="Your name"
-              />
               <button onClick={joinGame}>Join</button>
               <button className="btn-secondary" onClick={watchGame}>Watch only</button>
             </div>
-            {!!error && !error.startsWith("Invalid game code!") && !error.startsWith("This game code does not exist!") && (
-              <div className="error">{error}</div>
-            )}
+
+            {!!error
+              && !error.startsWith("Invalid game code!")
+              && !error.startsWith("This game code does not exist!")
+              && error !== "cheer_rate_limited"
+              && <div className="error">{error}</div>}
           </div>
         )}
+
 
         {/* Waiting */}
         {phase === "waiting" && (
@@ -626,8 +686,7 @@ export default function App() {
                   <span className="badge badge--spectator" title="Spectator mode">Spectator</span>
                 ) : (
                   <>
-                    You are: <strong>{name || "Guest"}</strong>
-                    {mySymbol && <> &nbsp;(<span className={`pill pill--${mySymbol}`}>{mySymbol}</span>)</>}
+                    You are: {mySymbol && <> &nbsp;(<span className={`pill pill--${mySymbol}`}>{mySymbol}</span>)</>}
                   </>
                 )}
               </div>
@@ -744,17 +803,35 @@ export default function App() {
           </div>
         )}
         {error && error.startsWith("Invalid game code!") && (
-          <div className="error-overlay" style={{ position: "fixed", top: 0, left: 0, width: "100vw", height: "100vh", background: "rgba(0,0,0,0.7)", zIndex: 999, display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <div style={{ background: "#222", color: "#fff", padding: "32px 40px", borderRadius: 16, boxShadow: "0 2px 16px #000", textAlign: "center" }}>
-              <h2 style={{ marginBottom: 16 }}>Invalid Game Code</h2>
-              <p style={{ marginBottom: 24 }}>Please enter a valid code with at least 4 characters.<br />Codes are usually a mix of letters and numbers (e.g. <b>A1B2C3</b>).</p>
-              <button className="primary" style={{ fontSize: 18, padding: "10px 24px" }} onClick={() => setError("")}>OK</button>
+          <div className="error-overlay" style={{ position:"fixed", top:0, left:0, width:"100vw", height:"100vh", background:"rgba(0,0,0,0.7)", zIndex:999, display:"flex", alignItems:"center", justifyContent:"center" }}>
+            <div style={{ background:"#222", color:"#fff", padding:"32px 40px", borderRadius:16, boxShadow:"0 2px 16px #000", textAlign:"center" }}>
+              <h2 style={{ marginBottom:16 }}>Invalid Game Code</h2>
+              <p style={{ marginBottom:24 }}>Please enter a valid code with at least 4 characters.<br/>Codes are usually a mix of letters and numbers (e.g. <b>A1B2C3</b>).</p>
+              <button className="primary" style={{ fontSize:18, padding:"10px 24px" }} onClick={() => setError("")}>OK</button>
             </div>
           </div>
         )}
-        {error && !error.startsWith("Invalid game code!") && !error.startsWith("This game code does not exist!") && error !== "Your opponent has left the game." && (
-          <div className="error">{error}</div>
+        {error
+          && !error.startsWith("Invalid game code!")
+          && !error.startsWith("This game code does not exist!")
+          && error !== "Your opponent has left the game."
+          && error !== "cheer_rate_limited"   
+          && <div className="error">{error}</div>}
+
+          <div className="error-overlay" style={{ position:"fixed", top:0, left:0, width:"100vw", height:"100vh", background:"rgba(0,0,0,0.7)", zIndex:999, display:"flex", alignItems:"center", justifyContent:"center" }}>
+            <div style={{ background:"#222", color:"#fff", padding:"32px 40px", borderRadius:16, boxShadow:"0 2px 16px #000", textAlign:"center" }}>
+              <h2 style={{ marginBottom:16 }}>Invalid Game Code</h2>
+              <p style={{ marginBottom:24 }}>Please enter a valid code with at least 4 characters.<br/>Codes are usually a mix of letters and numbers (e.g. <b>A1B2C3</b>).</p>
+              <button className="primary" style={{ fontSize:18, padding:"10px 24px" }} onClick={() => setError("")}>OK</button>
+            </div>
+          </div>
         )}
+        {error
+          && !error.startsWith("Invalid game code!")
+          && !error.startsWith("This game code does not exist!")
+          && error !== "Your opponent has left the game."
+          && error !== "cheer_rate_limited"   
+          && <div className="error">{error}</div>}
       </div>
     </div>
   );

@@ -242,6 +242,7 @@ h1 {
     width: 70vw;
     max-width: 70vw;
     box-sizing: border-box;
+    position: relative;
   }
   .cell {
     width: 22vw;
@@ -372,6 +373,52 @@ h1 {
   border-color: #fff;
   font-family: 'Press Start 2P', 'VT323', monospace;
 }
+
+/* Ergänzungen: gleiche Höhe & kein unschöner Umbruch */
+.top {
+  align-items: center;   /* gleiche Höhe */
+  column-gap: 16px;         /* Abstand nebeneinander */
+  row-gap: 6px;             /* Abstand übereinander (bei Wrap) */
+  flex-wrap: wrap;       /* darf auf sehr kleinen Screens umbrechen */
+}
+
+/* Linke Seite: "Code: <code>" in einer Zeile halten */
+.top > div:first-child {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+/* Rechte Seite: Role/Spectator in einer Zeile halten */
+.role {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+/* Langer Name wird gekürzt statt umzubrechen */
+.role strong {
+  max-width: 180px;         /* bei Bedarf anpassen */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Code-Token nicht umbrechen (Farben bleiben aus deinem Block) */
+.code {
+  display: inline-block;
+  white-space: nowrap;
+}
+
+/* Optische Mitte für Badge/Pill neben Text */
+.top .pill,
+.top .badge { vertical-align: middle; }
+
+.role .pill {
+  margin-left: 2px;         /* kleiner Schub Richtung "You are:" */
+}
 .status {
   text-align: center;
   margin-top: 4px;
@@ -422,4 +469,272 @@ button.danger {
   60% { transform: translate(-10px, 0); }
   80% { transform: translate(10px, 0); }
   100% { transform: translate(0, 0); }
+}
+
+/* ──────────────────────────────────────────────
+   Zusätzliche Styles für neue Features
+   (Spielerleiste, Spectator-Badge, Cheer-Bereich,
+   Pills, Secondary/Ghost Buttons, Confetti, etc.)
+   ────────────────────────────────────────────── */
+
+/* Buttons – zusätzliche Varianten */
+.btn-secondary {
+  background: #f7f7f7;
+  color: #535454;
+  border: 2px solid #535454;
+  border-radius: 10px;
+  padding: 10px 12px;
+  cursor: pointer;
+  font-family: 'Press Start 2P', 'VT323', monospace;
+  transition: background 0.2s, color 0.2s, border-color 0.2s;
+}
+.btn-secondary:hover {
+  background: #99aab5;
+  color: #23272a;
+  border-color: #7289da;
+}
+
+.btn-ghost {
+  background: transparent;
+  color: #e0e0e0;
+  border: 2px dashed #7289da;
+  padding: 8px 12px;
+  border-radius: 10px;
+  font-family: 'Press Start 2P', 'VT323', monospace;
+  transition: border-color 0.2s, color 0.2s, background 0.2s;
+}
+.btn-ghost:hover {
+  color: #23272a;
+  background: #99aab5;
+  border-color: #99aab5;
+}
+
+/* Join-Layouts aus dem Viewer-Mode */
+.join.join--stack {
+  display: flex;           /* falls nicht schon gesetzt */
+  flex-direction: column;  /* Stapel-Layout */
+  align-items: center;     /* 🔑 zentriert quer zur Spalte */
+  justify-content: center; /* optional */
+  gap: 10px;
+}
+.join.join--wrap {
+  flex-wrap: wrap;
+}
+
+/* Spielerleiste & Rollenanzeige */
+.playersbar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin: 10px 0 4px 0;
+  color: #e0e0e0;
+  font-family: 'Press Start 2P', 'VT323', monospace;
+}
+.playersbar .pair {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.playersbar .sep {
+  opacity: 0.6;
+  color: #99aab5;
+}
+
+.role {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #e0e0e0;
+  font-family: 'Press Start 2P', 'VT323', monospace;
+}
+
+/* Pills für X / O */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 9999px;
+  color: #fff;
+  font-size: 0.9rem;
+  border: 2px solid #23272a;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+.pill--X {
+  background: linear-gradient(135deg, #3b82f6, #2563eb);
+}
+.pill--O {
+  background: linear-gradient(135deg, #f04747, #d43b3b);
+}
+
+/* Badge für Spectator */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 9999px;
+  font-size: 0.85rem;
+  border: 2px solid #23272a;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+}
+.badge--spectator {
+  background: linear-gradient(135deg, #f9d65b, #f1b84a);
+  color: #23272a;
+}
+
+/* Zuschauerzahl */
+.audience {
+  text-align: center;
+  margin: 6px 0 10px 0;
+  color: #99aab5;
+  font-family: 'Press Start 2P', 'VT323', monospace;
+}
+
+/* Cheer-Bereich (Zuschauer-Interaktionen) */
+.cheer {
+  margin: 12px auto 0 auto;
+  padding: 12px;
+  max-width: 420px;
+  background: #2c2f33;
+  border: 2px solid #7289da;
+  border-radius: 16px;
+  box-shadow: 0 2px 12px rgba(114,137,218,0.12);
+  text-align: center;
+}
+.cheer__title {
+  font-family: 'Press Start 2P', 'VT323', monospace;
+  color: #e0e0e0;
+  margin-bottom: 10px;
+}
+.cheer__buttons {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  margin-bottom: 8px;
+}
+.cheer__buttons button {
+  min-width: 140px;
+}
+.cheer__hint {
+  font-size: 12px;
+  color: #99aab5;
+  opacity: 0.85;
+}
+
+/* Confetti (für Cheer & Sieg) */
+/* ── Cheering: directional left/right blasts in blue/red ───────────── */
+
+/* Cheer-Konfetti: seitliche Lanes am Spielfeld (unaufdringlich) */
+.confetti-lane {
+  position: absolute;
+  top: -8px;
+  bottom: -8px;
+  width: 88px;            /* Zone neben dem Board */
+  pointer-events: none;
+  overflow: visible;
+  z-index: 2;             /* über dem Board, unter Overlays */
+}
+.confetti-lane--left  { left: -88px; }
+.confetti-lane--right { right: -88px; }
+
+.confetti-piece {
+  position: absolute;
+  top: var(--y, 50%);
+  width: 8px;
+  height: 10px;
+  background: var(--confetti-color, #fff);
+  border-radius: 2px;
+  opacity: .92;
+  transform: translate(0,-50%) rotate(0deg) scale(var(--scale,1));
+  will-change: transform, opacity;
+  animation: throw-right var(--dur, 900ms) cubic-bezier(.18,.89,.32,1.28) forwards;
+  animation-delay: var(--delay, 0ms);
+}
+
+/* Form-Varianten */
+.confetti-piece.is-wide { width: 12px; height: 8px; }
+.confetti-piece.is-dot  { width: 7px;  height: 7px; border-radius: 50%; }
+
+/* Richtung je Lane */
+.confetti-lane--left  .confetti-piece { left: 0;  animation-name: throw-right; }
+.confetti-lane--right .confetti-piece { right: 0; animation-name: throw-left;  }
+
+/* sanfter Schuss Richtung Spielfeld (ca. 150–210px) */
+@keyframes throw-right {
+  100% {
+    transform:
+      translate(
+        calc(150px + 60px * var(--tx, .2)),
+        calc(var(--vy, 0) * 1px)
+      )
+      rotate(var(--rot, 180deg))
+      scale(var(--scale, 1));
+    opacity: .85;
+  }
+}
+@keyframes throw-left {
+  100% {
+    transform:
+      translate(
+        calc(-150px - 60px * var(--tx, .2)),
+        calc(var(--vy, 0) * 1px)
+      )
+      rotate(var(--rot, -180deg))
+      scale(var(--scale, 1));
+    opacity: .85;
+  }
+}
+
+/* Mobile: Lanes schmaler, damit nix überdeckt */
+@media (max-width: 600px) {
+  .confetti-lane { width: 64px; }
+  .confetti-lane--left  { left: -64px; }
+  .confetti-lane--right { right: -64px; }
+}
+
+
+
+/* Fehler-Overlays (einheitlicher Look) */
+.error-overlay {
+  position: fixed;
+  top: 0; left: 0;
+  width: 100vw; height: 100vh;
+  background: rgba(44,47,51,0.7);
+  z-index: 130;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.error-overlay .card {
+  background: #23272a;
+  border: 2px solid #7289da;
+  border-radius: 16px;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.25);
+  padding: 32px 28px 24px 28px;
+  color: #e0e0e0;
+  text-align: center;
+}
+
+/* Kleinzeug & Feinschliff */
+.code {
+  border: 2px dashed #7289da;
+  background: rgba(114,137,218,0.12);
+}
+
+.top .badge,
+.top .pill { vertical-align: middle; }
+
+/* Mobile Tuning für neue Bereiche */
+@media (max-width: 600px) {
+  .playersbar { flex-wrap: wrap; gap: 6px; }
+  .cheer { padding: 10px; border-radius: 12px; }
+  .cheer__buttons button { min-width: unset; flex: 1; }
+  .badge, .pill { font-size: .8rem; }
 }

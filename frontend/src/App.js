@@ -61,8 +61,8 @@ export default function App() {
 
   // Rematch UI state
   const [rematchRequested, setRematchRequested] = useState(false); // opponent asked
-  const [rematchPending, setRematchPending] = useState(false);     // I asked
-  const [rematchDeclined, setRematchDeclined] = useState(false);   // opponent declined
+  const [rematchPending, setRematchPending] = useState(false); // I asked
+  const [rematchDeclined, setRematchDeclined] = useState(false); // opponent declined
 
   // Socket & errors
   const [socketConnected, setSocketConnected] = useState(false);
@@ -79,23 +79,28 @@ export default function App() {
     [spectating, phase, mySymbol, next]
   );
 
+  // Socket single instance (same-origin; Nginx routes /socket.io/ to backend)
+  const socket = useMemo(
+    () => io("/", { path: "/socket.io/", transports: ["websocket"] }),
+    []
+  );
+
+  // URL ?code=XXXX -> auto-join
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const codeFromURL = params.get("code");
     if (codeFromURL) {
       const upperCode = codeFromURL.toUpperCase();
-      setCode(upperCode);        // setzt den Input-Feld-Wert
-      joinGame(upperCode);       // ruft joinGame direkt mit dem Code auf
+      setCode(upperCode);
+      joinGame(upperCode);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-
 
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e) => {
-      // Öffnen mit Command/Strg+M
-      if ((e.key.toLowerCase() === "m") && e.ctrlKey) {
+      if (e.key.toLowerCase() === "m" && e.ctrlKey) {
         setShowVolumeMenu((v) => !v);
       }
       if (e.key === "Escape") {
@@ -125,72 +130,56 @@ export default function App() {
   const gameoverRef = useRef(null);
   const bgMusicRef = useRef(null);
 
-  // Music & SFX on phase change
-// Music & SFX on phase change (nur Spieler; Zuschauer: keine Auto-Playback-Errors)
-useEffect(() => {
-  // Zuschauer hören nichts automatisch (Autoplay-Verbot vermeiden)
-  if (spectating) {
-    if (bgMusicRef.current) {
-      bgMusicRef.current.pause();
-      bgMusicRef.current.currentTime = 0;
-    }
-    return;
-  }
+  // Music & SFX on phase change (players only; spectators stay silent to avoid autoplay blocks)
+  useEffect(() => {
+    const bg = bgMusicRef.current;
 
-  if (phase === "over" && winner) {
-    if (winner === mySymbol && victoryRef.current) {
-      try {
-        victoryRef.current.currentTime = 0;
-        victoryRef.current.volume = effectVolume;
-        victoryRef.current.play().catch(() => {
-          console.log("Victory sound blocked.");
-        });
-      } else if (winner !== mySymbol && gameoverRef.current) {
-        gameoverRef.current.currentTime = 0;
-        gameoverRef.current.volume = effectVolume;
-        gameoverRef.current.play().catch(() => {
-          console.log("Game over sound blocked.");
-        });
-      }
-      if (bgMusicRef.current) {
-        bgMusicRef.current.pause();
-        bgMusicRef.current.currentTime = 0;
-      }
-    }
-    if (phase === "playing" && bgMusicRef.current) {
-      bgMusicRef.current.volume = musicVolume;
-      bgMusicRef.current.loop = true;
-      bgMusicRef.current.play().catch(() => {
-        console.log("Autoplay blocked: user interaction required.");
+    const playBg = () => {
+      if (!bg) return;
+      bg.volume = musicVolume;
+      bg.loop = true;
+      bg.play().catch(() => {
+        // Autoplay may be blocked until user interacts.
       });
+    };
 
+    const stopBg = () => {
+      if (!bg) return;
+      bg.pause();
+      bg.currentTime = 0;
+    };
+
+    // Spectators: no auto playback
+    if (spectating) {
+      stopBg();
+      return;
     }
-    if (bgMusicRef.current) {
-      bgMusicRef.current.pause();
-      bgMusicRef.current.currentTime = 0;
+
+    if (phase === "playing") {
+      playBg();
+      return;
     }
-  }
 
-  if (phase === "playing" && bgMusicRef.current) {
-    try {
-      bgMusicRef.current.volume = musicVolume;
-      bgMusicRef.current.loop = true;
-      bgMusicRef.current.play().catch(() => {});
-    } catch {}
-  }
+    if (phase === "over") {
+      stopBg();
+      if (winner) {
+        const sfx = winner === mySymbol ? victoryRef.current : gameoverRef.current;
+        if (sfx) {
+          try {
+            sfx.currentTime = 0;
+            sfx.volume = effectVolume;
+            sfx.play().catch(() => {});
+          } catch {}
+        }
+      }
+      return;
+    }
 
-  if ((phase === "landing" || phase === "waiting") && bgMusicRef.current) {
-    bgMusicRef.current.pause();
-    bgMusicRef.current.currentTime = 0;
-  }
-}, [phase, winner, mySymbol, musicVolume, effectVolume, spectating]);
+    // landing / waiting
+    stopBg();
+  }, [phase, winner, mySymbol, musicVolume, effectVolume, spectating]);
 
-  // Socket
-  const socket = useMemo(() => {
-    // Same-origin; e.g. Nginx routes /socket.io/ to backend
-    return io("/", { path: "/socket.io/", transports: ["websocket"] });
-  }, []);
-
+  // Socket wiring
   useEffect(() => {
     // Connection state
     socket.on("connect", () => setSocketConnected(true));
@@ -254,14 +243,13 @@ useEffect(() => {
 
     // Backend errors
     socket.on("error", ({ message }) => {
-      if (message === "cheer_rate_limited") return; // 👈 nicht ins UI schreiben
+      if (message === "cheer_rate_limited") return; // don't surface in UI
       if (message === "invalid_code") {
         setError("This game code does not exist! Please check the code and try again.");
       } else {
         setError(message || "Unknown error");
       }
     });
-
 
     // Spectator snapshot
     socket.on("spectator", (payload = {}) => {
@@ -273,8 +261,8 @@ useEffect(() => {
           payload.status === "waiting"
             ? "waiting"
             : payload.status === "playing"
-              ? "playing"
-              : "over"
+            ? "playing"
+            : "over"
         );
       }
       if (typeof payload.winner !== "undefined") setWinner(payload.winner);
@@ -328,7 +316,6 @@ useEffect(() => {
   async function createGame() {
     try {
       setError("");
-      // Try backend route first; fall back to /api prefix if needed.
       let res = await fetch("/games", { method: "POST" });
       if (!res.ok) res = await fetch("/api/games", { method: "POST" });
       if (!res.ok) throw new Error("Could not create a game.");
@@ -341,11 +328,9 @@ useEffect(() => {
     }
   }
 
-  function joinGame() {
-    if (!code || code.length < 4) {
+  // Join game (optional explicit code for deep links)
   function joinGame(customCode) {
-    const gameCode = customCode || code; // falls kein Argument, nimm State
-    console.log("Joining game with code:", gameCode);
+    const gameCode = (customCode || code || "").toUpperCase();
     if (!gameCode || gameCode.length < 4) {
       setError("Invalid game code! Please enter a code with at least 4 characters.");
       return;
@@ -354,11 +339,11 @@ useEffect(() => {
     socket.emit("join", { code: gameCode, name: name || "Guest" });
   }
 
-
   function watchGame() {
-    if (!code || code.length < 4) return setError("Please enter a valid code.");
+    const gameCode = (code || "").toUpperCase();
+    if (!gameCode || gameCode.length < 4) return setError("Please enter a valid code.");
     setError("");
-    socket.emit("join", { code, name: name || "Guest", spectator: true });
+    socket.emit("join", { code: gameCode, name: name || "Guest", spectator: true });
   }
 
   function makeMove(cell) {
@@ -377,7 +362,7 @@ useEffect(() => {
   function rematch() {
     if (spectating || phase !== "over") return;
     socket.emit("rematch", { code });
-    setRematchPending(true);      // optimistic UI; server will start or opponent may decline
+    setRematchPending(true); // optimistic UI
     setRematchDeclined(false);
   }
 
@@ -418,61 +403,53 @@ useEffect(() => {
     fireConfetti(target);
   }
 
-function fireConfetti(targetOrOpts) {
-  // Mapping: X -> links/blau, O -> rechts/rot
-  let side, hueBase;
-  if (typeof targetOrOpts === "string") {
-    const t = String(targetOrOpts).toUpperCase();
-    side = t === "X" ? "left" : "right";
-    hueBase = t === "X" ? 210 : 8;   // blau / rot
-  } else {
-    side = targetOrOpts?.side === "right" ? "right" : "left";
-    hueBase = targetOrOpts?.color === "red" ? 8 : 210;
+  function fireConfetti(targetOrOpts) {
+    let side, hueBase;
+    if (typeof targetOrOpts === "string") {
+      const t = String(targetOrOpts).toUpperCase();
+      side = t === "X" ? "left" : "right";
+      hueBase = t === "X" ? 210 : 8; // blue / red
+    } else {
+      side = targetOrOpts?.side === "right" ? "right" : "left";
+      hueBase = targetOrOpts?.color === "red" ? 8 : 210;
+    }
+
+    const host =
+      document.querySelector(".board") ||
+      document.querySelector(".game") ||
+      document.body;
+
+    const lane = document.createElement("div");
+    lane.className = `confetti-lane confetti-lane--${side}`;
+    host.appendChild(lane);
+
+    const count = 42;
+    for (let i = 0; i < count; i++) {
+      const piece = document.createElement("i");
+      piece.className = "confetti-piece";
+
+      const r = Math.random();
+      if (r < 0.25) piece.classList.add("is-dot");
+      else if (r > 0.75) piece.classList.add("is-wide");
+
+      const hue = hueBase + Math.floor(Math.random() * 24) - 12;
+      const sat = 80 + Math.floor(Math.random() * 12);
+      const light = 52 + Math.floor(Math.random() * 10);
+      piece.style.setProperty("--confetti-color", `hsl(${hue} ${sat}% ${light}%)`);
+
+      piece.style.setProperty("--y", `${Math.floor(Math.random() * 100)}%`);
+      piece.style.setProperty("--tx", (Math.random() * 1.0 + 0.1).toFixed(2));
+      piece.style.setProperty("--vy", (Math.random() * 80 - 40).toFixed(0));
+      piece.style.setProperty("--rot", (Math.random() * 720 - 360).toFixed(0) + "deg");
+      piece.style.setProperty("--scale", (0.7 + Math.random() * 0.6).toFixed(2));
+      piece.style.setProperty("--dur", (750 + Math.random() * 450).toFixed(0) + "ms");
+      piece.style.setProperty("--delay", (Math.random() * 100).toFixed(0) + "ms");
+
+      lane.appendChild(piece);
+    }
+
+    setTimeout(() => lane.remove(), 1400);
   }
-
-  // Host möglichst nah am Spielfeld
-  const host =
-    document.querySelector(".board") ||
-    document.querySelector(".game") ||
-    document.body;
-
-  const lane = document.createElement("div");
-  lane.className = `confetti-lane confetti-lane--${side}`;
-  host.appendChild(lane);
-
-  const count = 42; // bewusst überschaubar halten
-  for (let i = 0; i < count; i++) {
-    const piece = document.createElement("i");
-    piece.className = "confetti-piece";
-
-    // kleine Form-Variation
-    const r = Math.random();
-    if (r < 0.25) piece.classList.add("is-dot");
-    else if (r > 0.75) piece.classList.add("is-wide");
-
-    // Farbe: Grundton mit leichter Varianz
-    const hue = hueBase + Math.floor(Math.random() * 24) - 12;
-    const sat = 80 + Math.floor(Math.random() * 12);
-    const light = 52 + Math.floor(Math.random() * 10);
-    piece.style.setProperty("--confetti-color", `hsl(${hue} ${sat}% ${light}%)`);
-
-    // vertikale Verteilung über die ganze Board-Höhe
-    piece.style.setProperty("--y", `${Math.floor(Math.random() * 100)}%`);
-
-    // Bewegung: etwas Horizontal-Spread & vertikaler Drift
-    piece.style.setProperty("--tx", (Math.random() * 1.0 + 0.1).toFixed(2));      // 0.1..1.1
-    piece.style.setProperty("--vy", (Math.random() * 80 - 40).toFixed(0));        // -40..+40 px
-    piece.style.setProperty("--rot", (Math.random() * 720 - 360).toFixed(0) + "deg");
-    piece.style.setProperty("--scale", (0.7 + Math.random() * 0.6).toFixed(2));   // 0.7..1.3
-    piece.style.setProperty("--dur", (750 + Math.random() * 450).toFixed(0) + "ms");
-    piece.style.setProperty("--delay", (Math.random() * 100).toFixed(0) + "ms");
-
-    lane.appendChild(piece);
-  }
-
-  // Auto-Cleanup
-  setTimeout(() => lane.remove(), 1400);
-}
 
   // ---------- UI ----------
   return (
@@ -536,24 +513,23 @@ function fireConfetti(targetOrOpts) {
       <audio ref={gameoverRef} src="/gameover.wav" preload="auto" />
       <audio ref={bgMusicRef} src="/bgmusic.wav" preload="auto" />
 
-    {/* Background animations */}
-    <div className="background-animations">
-      {/* Nur Spieler sehen Gewinn-/Verlust-Animationen */}
-      {(!spectating && phase === "over" && winner === mySymbol) && (
-        <Confetti
-          width={window.innerWidth}
-          height={window.innerHeight}
-          numberOfPieces={600}
-          gravity={0.5}
-          initialVelocityY={20}
-          recycle={true}
-        />
-      )}
-      {(!spectating && phase === "over" && winner && winner !== mySymbol) && (
-        <div className="shake-bg" />
-      )}
-    </div>
-
+      {/* Background animations */}
+      <div className="background-animations">
+        {/* Players only */}
+        {!spectating && phase === "over" && winner === mySymbol && (
+          <Confetti
+            width={window.innerWidth}
+            height={window.innerHeight}
+            numberOfPieces={600}
+            gravity={0.5}
+            initialVelocityY={20}
+            recycle={true}
+          />
+        )}
+        {!spectating && phase === "over" && winner && winner !== mySymbol && (
+          <div className="shake-bg" />
+        )}
+      </div>
 
       {/* Manual overlay */}
       {showManual && (phase === "landing" || phase === "waiting" || phase === "playing" || phase === "over") && (
@@ -627,7 +603,7 @@ function fireConfetti(targetOrOpts) {
                   maxLength={8}
                   aria-label="Game code"
                 />
-                <button onClick={joinGame}>Join</button>
+                <button onClick={() => joinGame()}>Join</button>
                 <button className="btn-secondary" onClick={watchGame}>Watch only</button>
               </div>
               {!!error && !error.startsWith("Invalid game code!") && !error.startsWith("This game code does not exist!") && (
@@ -647,7 +623,6 @@ function fireConfetti(targetOrOpts) {
             </div>
           </div>
         )}
-
 
         {/* Waiting */}
         {phase === "waiting" && (
@@ -826,28 +801,14 @@ function fireConfetti(targetOrOpts) {
           </div>
         )}
 
-        {error
-          && !error.startsWith("Invalid game code!")
-          && !error.startsWith("This game code does not exist!")
-          && error !== "Your opponent has left the game."
-          && error !== "cheer_rate_limited"   
-          && <div className="error">{error}</div>}
-
-          <div className="error-overlay" style={{ position:"fixed", top:0, left:0, width:"100vw", height:"100vh", background:"rgba(0,0,0,0.7)", zIndex:999, display:"flex", alignItems:"center", justifyContent:"center" }}>
-            <div style={{ background:"#222", color:"#fff", padding:"32px 40px", borderRadius:16, boxShadow:"0 2px 16px #000", textAlign:"center" }}>
-              <h2 style={{ marginBottom:16 }}>Invalid Game Code</h2>
-              <p style={{ marginBottom:24 }}>Please enter a valid code with at least 4 characters.<br/>Codes are usually a mix of letters and numbers (e.g. <b>A1B2C3</b>).</p>
-              <button className="primary" style={{ fontSize:18, padding:"10px 24px" }} onClick={() => setError("")}>OK</button>
-            </div>
-          </div>
-        )}
-
-        {error
-          && !error.startsWith("Invalid game code!")
-          && !error.startsWith("This game code does not exist!")
-          && error !== "Your opponent has left the game."
-          && error !== "cheer_rate_limited"   
-          && <div className="error">{error}</div>}
+        {/* Generic error inline */}
+        {error &&
+          !error.startsWith("Invalid game code!") &&
+          !error.startsWith("This game code does not exist!") &&
+          error !== "Your opponent has left the game." &&
+          error !== "cheer_rate_limited" && (
+            <div className="error">{error}</div>
+          )}
       </div>
     </div>
   );
